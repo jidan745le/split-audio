@@ -21,7 +21,7 @@
             formData.append('file', fileField.files[0]);
             
             try {
-                const response = await fetch('http://localhost:5000/process_audio', {
+                const response = await fetch('http://8.222.155.238:5000/process_audio', {
                     method: 'POST',
                     body: formData
                 });

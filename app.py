@@ -15,6 +15,10 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+@app.route('/', methods=['GET'])
+def health_check():
+    return jsonify({'status': 'healthy'}), 200
+
 @app.route('/process_audio', methods=['POST'])
 def process_audio():
     if 'file' not in request.files:
@@ -32,6 +36,7 @@ def process_audio():
         try:
             # 处理音频文件
             results = process_audio_file(filepath)
+            print(results)
             # 处理完成后删除文件
             os.remove(filepath)
             return jsonify(results)
