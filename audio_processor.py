@@ -6,9 +6,28 @@ from pyannote.audio import Pipeline
 import os
 from typing import Dict, Any
 from dotenv import load_dotenv
+from tqdm import tqdm
+import sys
+from typing import Optional, Mapping, Any
 
 # 加载 .env 文件
 load_dotenv()
+
+class _CustomProgressBar(tqdm.tqdm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._current = self.n  # Set the initial value
+        
+    def update(self, n):
+        super().update(n)
+        self._current += n
+        
+        # Handle progress here
+        print("\nProgress~: " + str(self._current) + "/" + str(self.total))
+
+import whisper.transcribe 
+transcribe_module = sys.modules['whisper.transcribe']
+transcribe_module.tqdm.tqdm = _CustomProgressBar
 
 class SpeakerDiarization:
     def __init__(self):
@@ -33,8 +52,22 @@ class SpeakerDiarization:
             "min_speakers": min_speakers,
             "max_speakers": max_speakers
         }
-        
-        diarization = self.pipeline(params)
+        from pyannote.audio.pipelines.utils.hook import ProgressHook
+        class CustomProgressHook(ProgressHook):
+            def __call__(self, step_name: str, step_artifact: Any,
+                    file: Optional[Mapping] = None,
+                    total: Optional[int] = None,
+                    completed: Optional[int] = None):
+                if completed is not None and total is not None:
+                    progress = (completed / total) * 100
+                    print(f"\r{step_name} 进度: {completed}/{total} ({progress:.1f}%)", end="")
+                else:
+                    # 当没有进度信息时，只显示步骤名称
+                    print(f"\r当前步骤: {step_name}", end="")
+                super().__call__(step_name, step_artifact, file, total, completed)
+    
+        with CustomProgressHook() as hook:
+            diarization = self.pipeline(params, hook=hook)
         return self._analyze_diarization(diarization)
 
     def _analyze_diarization(self, diarization) -> dict:
