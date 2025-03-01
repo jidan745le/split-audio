@@ -10,3 +10,4 @@ pyannote.pipeline==3.0.1
 werkzeug==2.0.1
 python-dotenv
 numpy>=1.24.0,<2.0.0
+flask-cors

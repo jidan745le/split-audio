@@ -1,9 +1,12 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import os
 from werkzeug.utils import secure_filename
 from audio_processor import process_audio_file  # 我们将把主要处理逻辑移到这个文件中
 
 app = Flask(__name__)
+# 允许所有域名的跨域请求
+CORS(app)
 
 # 配置上传文件存储路径
 UPLOAD_FOLDER = '/app/uploads'

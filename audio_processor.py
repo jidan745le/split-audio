@@ -60,10 +60,10 @@ class SpeakerDiarization:
                     completed: Optional[int] = None):
                 if completed is not None and total is not None:
                     progress = (completed / total) * 100
-                    print(f"\r{step_name} 进度: {completed}/{total} ({progress:.1f}%)", end="")
+                    print(f"\r{step_name} 进度: {completed}/{total} ({progress:.1f}%)",flush=True)
                 else:
                     # 当没有进度信息时，只显示步骤名称
-                    print(f"\r当前步骤: {step_name}", end="")
+                    print(f"\r当前步骤: {step_name}",flush=True)
                 super().__call__(step_name, step_artifact, file, total, completed)
     
         with CustomProgressHook() as hook:
