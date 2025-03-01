@@ -13,7 +13,7 @@ from typing import Optional, Mapping, Any
 # 加载 .env 文件
 load_dotenv()
 
-class _CustomProgressBar(tqdm.tqdm):
+class _CustomProgressBar(tqdm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._current = self.n  # Set the initial value
