@@ -102,10 +102,42 @@ def process_audio_file(audio_path: str) -> Dict[str, Any]:
     
     return combined_results
 
+def handle_overlapping_segments(diarization_data):
+    """处理重叠的说话人片段"""
+    # 按开始时间排序
+    sorted_segments = sorted(diarization_data, key=lambda x: x["start"])
+    
+    # 创建一个新的无重叠片段列表
+    non_overlapping = []
+    
+    for segment in sorted_segments:
+        if not non_overlapping:
+            # 第一个片段直接添加
+            non_overlapping.append(segment)
+            continue
+        
+        last = non_overlapping[-1]
+        
+        # 检查是否有重叠
+        if segment["start"] < last["end"]:
+            # 有重叠，根据持续时间决定保留哪个
+            current_duration = segment["end"] - segment["start"]
+            last_duration = last["end"] - last["start"]
+            
+            # 如果当前片段更长，替换最后一个片段
+            if current_duration > last_duration:
+                non_overlapping[-1] = segment
+            # 否则保持不变
+        else:
+            # 无重叠，直接添加
+            non_overlapping.append(segment)
+    
+    return non_overlapping
+
 def combine_whisper_diarization_with_ratio(whisper_data, diarization_data, overlap_threshold=0.3):
     # 将原有的合并函数代码复制到这里
     # 合并相邻的相同说话人片段
-    merged_segments = merge_same_speaker_segments(diarization_data)
+    merged_segments = merge_same_speaker_segments(handle_overlapping_segments(diarization_data))
     
     # 收集所有words
     all_words = []
