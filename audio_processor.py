@@ -43,7 +43,7 @@ class SpeakerDiarization:
         # 强制使用CPU
         self.pipeline.to(torch.device("cpu"))
 
-    def process_audio(self, audio_path: str, min_speakers: int = 2, max_speakers: int = 2) -> dict:
+    def process_audio(self, audio_path: str, min_speakers: int = 1, max_speakers: int = 4) -> dict:
         waveform, sample_rate = torchaudio.load(audio_path)
         
         params = {
@@ -180,14 +180,14 @@ def combine_whisper_diarization_with_ratio(whisper_data, diarization_data, overl
         
         # 拼接文本
         segment_text = " ".join(w["word"] for w in segment_words)
-        
-        combined_result.append({
-            "speaker": spk,
-            "start": round(seg_start, 3),
-            "end": round(seg_end, 3),
-            "text": segment_text,
-            "words": segment_words
-        })
+        if len(segment_words) > 0:
+            combined_result.append({
+                "speaker": spk,
+                "start": round(seg_start, 3),
+                "end": round(seg_end, 3),
+                "text": segment_text,
+                "words": segment_words
+            })
         
     return combined_result
 
