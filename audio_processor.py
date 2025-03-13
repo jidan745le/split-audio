@@ -8,9 +8,21 @@ from typing import Dict, Any, Optional, Mapping
 from dotenv import load_dotenv
 from tqdm import tqdm
 import sys
+import numpy as np
 
 # 加载 .env 文件
 load_dotenv()
+
+# 添加一个自定义的JSON编码器来处理NumPy数据类型
+class NumpyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super(NumpyEncoder, self).default(obj)
 
 class SpeakerDiarization:
     def __init__(self, socketio=None):
@@ -47,27 +59,41 @@ class SpeakerDiarization:
                     total: Optional[int] = None,
                     completed: Optional[int] = None):
                 if completed is not None and total is not None:
-                    progress = (completed / total) * 100
-                    progress_msg = f"{step_name} 进度: {completed}/{total} ({progress:.1f}%)"
+                    # 确保 completed 和 total 是 Python 原生类型
+                    completed_int = int(completed) if isinstance(completed, np.integer) else completed
+                    total_int = int(total) if isinstance(total, np.integer) else total
+                    
+                    progress = (completed_int / total_int) * 100
+                    progress_msg = f"{step_name} 进度: {completed_int}/{total_int} ({progress:.1f}%)"
                     print(f"\r{progress_msg}", flush=True)
                     
                     # 通过WebSocket发送进度信息
                     if self.socketio:
-                        self.socketio.emit('diarization_progress', {
-                            'step': step_name,
-                            'completed': completed,
-                            'total': total,
-                            'progress': round(progress, 1),
-                            'message': progress_msg
-                        })
+                        try:
+                            # 使用 NumpyEncoder 确保数据可以被 JSON 序列化
+                            progress_data = {
+                                'step': step_name,
+                                'completed': completed_int,
+                                'total': total_int,
+                                'progress': round(progress, 1),
+                                'message': progress_msg
+                            }
+                            # 转换为 JSON 再解析回来，确保没有 NumPy 类型
+                            progress_data = json.loads(json.dumps(progress_data, cls=NumpyEncoder))
+                            self.socketio.emit('diarization_progress', progress_data)
+                        except Exception as e:
+                            print(f"Error sending progress via WebSocket: {e}")
                 else:
                     # 当没有进度信息时，只显示步骤名称
                     print(f"\r当前步骤: {step_name}", flush=True)
                     if self.socketio:
-                        self.socketio.emit('diarization_progress', {
-                            'step': step_name,
-                            'message': f"当前步骤: {step_name}"
-                        })
+                        try:
+                            self.socketio.emit('diarization_progress', {
+                                'step': step_name,
+                                'message': f"当前步骤: {step_name}"
+                            })
+                        except Exception as e:
+                            print(f"Error sending step info via WebSocket: {e}")
                 super().__call__(step_name, step_artifact, file, total, completed)
     
         with CustomProgressHook(self.socketio) as hook:
@@ -79,8 +105,8 @@ class SpeakerDiarization:
         serializable_tracks = []
         for turn, track, speaker in tracks:
             track_dict = {
-                'start': turn.start,
-                'end': turn.end,
+                'start': float(turn.start),  # 确保是 Python 原生类型
+                'end': float(turn.end),      # 确保是 Python 原生类型
                 'speaker': speaker
             }
             serializable_tracks.append(track_dict)
@@ -100,18 +126,28 @@ def process_audio_file(audio_path: str, socketio=None) -> Dict[str, Any]:
             
             # 计算进度百分比
             if self.total is not None:
-                progress = (self._current / self.total) * 100
-                progress_msg = f"Whisper进度: {self._current}/{self.total} ({progress:.1f}%)"
+                # 确保是 Python 原生类型
+                current = int(self._current) if isinstance(self._current, np.integer) else self._current
+                total = int(self.total) if isinstance(self.total, np.integer) else self.total
+                
+                progress = (current / total) * 100
+                progress_msg = f"Whisper进度: {current}/{total} ({progress:.1f}%)"
                 print(f"\r{progress_msg}", flush=True)
                 
                 # 通过WebSocket发送进度信息
                 if self.socketio:
-                    self.socketio.emit('whisper_progress', {
-                        'completed': self._current,
-                        'total': self.total,
-                        'progress': round(progress, 1),
-                        'message': progress_msg
-                    })
+                    try:
+                        progress_data = {
+                            'completed': current,
+                            'total': total,
+                            'progress': round(progress, 1),
+                            'message': progress_msg
+                        }
+                        # 转换为 JSON 再解析回来，确保没有 NumPy 类型
+                        progress_data = json.loads(json.dumps(progress_data, cls=NumpyEncoder))
+                        self.socketio.emit('whisper_progress', progress_data)
+                    except Exception as e:
+                        print(f"Error sending whisper progress via WebSocket: {e}")
     
     import whisper.transcribe 
     transcribe_module = sys.modules['whisper.transcribe']
@@ -155,7 +191,9 @@ def process_audio_file(audio_path: str, socketio=None) -> Dict[str, Any]:
     if socketio:
         socketio.emit('processing_status', {'status': 'completed', 'message': '音频处理完成'})
     
-    return combined_results
+    # 确保所有NumPy类型都被转换为Python原生类型
+    combined_results_json = json.loads(json.dumps(combined_results, cls=NumpyEncoder))
+    return combined_results_json
 
 def handle_overlapping_segments(diarization_data):
     """处理重叠的说话人片段"""
