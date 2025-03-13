@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from flask_socketio import SocketIO
 import os
 from werkzeug.utils import secure_filename
 from audio_processor import process_audio_file  # 我们将把主要处理逻辑移到这个文件中
@@ -7,6 +8,8 @@ from audio_processor import process_audio_file  # 我们将把主要处理逻辑
 app = Flask(__name__)
 # 允许所有域名的跨域请求
 CORS(app)
+# 初始化SocketIO
+socketio = SocketIO(app, cors_allowed_origins="*")
 
 # 配置上传文件存储路径
 UPLOAD_FOLDER = '/app/uploads'
@@ -37,9 +40,8 @@ def process_audio():
         file.save(filepath)
         
         try:
-            # 处理音频文件
-            results = process_audio_file(filepath)
-            print(results)
+            # 处理音频文件，传入socketio实例用于发送进度
+            results = process_audio_file(filepath, socketio=socketio)
             # 处理完成后删除文件
             os.remove(filepath)
             return jsonify(results)
@@ -51,5 +53,14 @@ def process_audio():
     
     return jsonify({'error': 'Invalid file type'}), 400
 
+# WebSocket事件处理
+@socketio.on('connect')
+def handle_connect():
+    print('Client connected')
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    print('Client disconnected')
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000) 
+    socketio.run(app, host='0.0.0.0', port=5000, allow_unsafe_werkzeug=True) 

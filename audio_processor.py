@@ -4,33 +4,16 @@ import torch
 import torchaudio
 from pyannote.audio import Pipeline
 import os
-from typing import Dict, Any
+from typing import Dict, Any, Optional, Mapping
 from dotenv import load_dotenv
 from tqdm import tqdm
 import sys
-from typing import Optional, Mapping, Any
 
 # 加载 .env 文件
 load_dotenv()
 
-class _CustomProgressBar(tqdm):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._current = self.n  # Set the initial value
-        
-    def update(self, n):
-        super().update(n)
-        self._current += n
-        
-        # Handle progress here
-        print("\nProgress~: " + str(self._current) + "/" + str(self.total))
-
-import whisper.transcribe 
-transcribe_module = sys.modules['whisper.transcribe']
-transcribe_module.tqdm.tqdm = _CustomProgressBar
-
 class SpeakerDiarization:
-    def __init__(self):
+    def __init__(self, socketio=None):
         # 从环境变量获取 token
         auth_token = os.getenv('HUGGINGFACE_TOKEN')
         if not auth_token:
@@ -42,6 +25,7 @@ class SpeakerDiarization:
         )
         # 强制使用CPU
         self.pipeline.to(torch.device("cpu"))
+        self.socketio = socketio
 
     def process_audio(self, audio_path: str, min_speakers: int = 1, max_speakers: int = 4) -> dict:
         waveform, sample_rate = torchaudio.load(audio_path)
@@ -54,19 +38,39 @@ class SpeakerDiarization:
         }
         from pyannote.audio.pipelines.utils.hook import ProgressHook
         class CustomProgressHook(ProgressHook):
+            def __init__(self, socketio=None):
+                super().__init__()
+                self.socketio = socketio
+                
             def __call__(self, step_name: str, step_artifact: Any,
                     file: Optional[Mapping] = None,
                     total: Optional[int] = None,
                     completed: Optional[int] = None):
                 if completed is not None and total is not None:
                     progress = (completed / total) * 100
-                    print(f"\r{step_name} 进度: {completed}/{total} ({progress:.1f}%)",flush=True)
+                    progress_msg = f"{step_name} 进度: {completed}/{total} ({progress:.1f}%)"
+                    print(f"\r{progress_msg}", flush=True)
+                    
+                    # 通过WebSocket发送进度信息
+                    if self.socketio:
+                        self.socketio.emit('diarization_progress', {
+                            'step': step_name,
+                            'completed': completed,
+                            'total': total,
+                            'progress': round(progress, 1),
+                            'message': progress_msg
+                        })
                 else:
                     # 当没有进度信息时，只显示步骤名称
-                    print(f"\r当前步骤: {step_name}",flush=True)
+                    print(f"\r当前步骤: {step_name}", flush=True)
+                    if self.socketio:
+                        self.socketio.emit('diarization_progress', {
+                            'step': step_name,
+                            'message': f"当前步骤: {step_name}"
+                        })
                 super().__call__(step_name, step_artifact, file, total, completed)
     
-        with CustomProgressHook() as hook:
+        with CustomProgressHook(self.socketio) as hook:
             diarization = self.pipeline(params, hook=hook)
         return self._analyze_diarization(diarization)
 
@@ -82,23 +86,74 @@ class SpeakerDiarization:
             serializable_tracks.append(track_dict)
         return serializable_tracks
 
-def process_audio_file(audio_path: str) -> Dict[str, Any]:
-    # 不再需要在这里设置 token
+def process_audio_file(audio_path: str, socketio=None) -> Dict[str, Any]:
+    # 自定义进度条，通过WebSocket发送进度
+    class _CustomProgressBar(tqdm):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._current = self.n  # 设置初始值
+            self.socketio = socketio
+
+        def update(self, n):
+            super().update(n)
+            self._current += n
+            
+            # 计算进度百分比
+            if self.total is not None:
+                progress = (self._current / self.total) * 100
+                progress_msg = f"Whisper进度: {self._current}/{self.total} ({progress:.1f}%)"
+                print(f"\r{progress_msg}", flush=True)
+                
+                # 通过WebSocket发送进度信息
+                if self.socketio:
+                    self.socketio.emit('whisper_progress', {
+                        'completed': self._current,
+                        'total': self.total,
+                        'progress': round(progress, 1),
+                        'message': progress_msg
+                    })
+    
+    import whisper.transcribe 
+    transcribe_module = sys.modules['whisper.transcribe']
+    transcribe_module.tqdm.tqdm = _CustomProgressBar
+    
+    # 发送开始处理的消息
+    if socketio:
+        socketio.emit('processing_status', {'status': 'started', 'message': '开始处理音频文件'})
     
     # 1. 使用Whisper进行转录（强制使用CPU）
+    if socketio:
+        socketio.emit('processing_status', {'status': 'whisper_loading', 'message': '加载Whisper模型'})
+    
     model = whisper.load_model("base").cpu()
+    
+    if socketio:
+        socketio.emit('processing_status', {'status': 'whisper_transcribing', 'message': '开始转录音频'})
+    
+    # 设置tqdm的socketio
+    transcribe_module.tqdm.tqdm.socketio = socketio
     whisper_data = model.transcribe(audio_path, word_timestamps=True)
     
     # 2. 进行说话人分离
-    diarization = SpeakerDiarization()
+    if socketio:
+        socketio.emit('processing_status', {'status': 'diarization_started', 'message': '开始说话人分离'})
+    
+    diarization = SpeakerDiarization(socketio)
     diarization_data = diarization.process_audio(audio_path)
     
     # 3. 合并结果
+    if socketio:
+        socketio.emit('processing_status', {'status': 'combining_results', 'message': '合并转录和说话人分离结果'})
+    
     combined_results = combine_whisper_diarization_with_ratio(
         whisper_data,
         diarization_data,
         overlap_threshold=0.3
     )
+    
+    # 发送处理完成的消息
+    if socketio:
+        socketio.emit('processing_status', {'status': 'completed', 'message': '音频处理完成'})
     
     return combined_results
 
@@ -135,7 +190,6 @@ def handle_overlapping_segments(diarization_data):
     return non_overlapping
 
 def combine_whisper_diarization_with_ratio(whisper_data, diarization_data, overlap_threshold=0.3):
-    # 将原有的合并函数代码复制到这里
     # 合并相邻的相同说话人片段
     merged_segments = merge_same_speaker_segments(handle_overlapping_segments(diarization_data))
     

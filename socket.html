@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>音频处理进度</title>
+    <script src="https://cdn.socket.io/4.4.1/socket.io.min.js"></script>
+    <style>
+        .progress-container {
+            width: 100%;
+            background-color: #f1f1f1;
+            margin: 10px 0;
+        }
+        .progress-bar {
+            height: 30px;
+            background-color: #4CAF50;
+            text-align: center;
+            line-height: 30px;
+            color: white;
+        }
+        #status {
+            margin: 20px 0;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>音频处理进度</h1>
+    
+    <div id="status">等待连接...</div>
+    
+    <h2>Whisper转录进度</h2>
+    <div class="progress-container">
+        <div id="whisper-progress" class="progress-bar" style="width:0%">0%</div>
+    </div>
+    
+    <h2>说话人分离进度</h2>
+    <div class="progress-container">
+        <div id="diarization-progress" class="progress-bar" style="width:0%">0%</div>
+    </div>
+    
+    <h2>处理日志</h2>
+    <div id="log" style="height: 300px; overflow-y: scroll; border: 1px solid #ccc; padding: 10px;"></div>
+    
+    <script>
+        // 连接到WebSocket服务器
+        const socket = io('http://localhost:5000');
+        
+        // 连接事件
+        socket.on('connect', () => {
+            document.getElementById('status').textContent = '已连接到服务器';
+            addLog('已连接到服务器');
+        });
+        
+        // 断开连接事件
+        socket.on('disconnect', () => {
+            document.getElementById('status').textContent = '与服务器断开连接';
+            addLog('与服务器断开连接');
+        });
+        
+        // 处理Whisper进度
+        socket.on('whisper_progress', (data) => {
+            const progressBar = document.getElementById('whisper-progress');
+            progressBar.style.width = data.progress + '%';
+            progressBar.textContent = data.progress + '%';
+            addLog(data.message);
+        });
+        
+        // 处理说话人分离进度
+        socket.on('diarization_progress', (data) => {
+            if (data.progress) {
+                const progressBar = document.getElementById('diarization-progress');
+                progressBar.style.width = data.progress + '%';
+                progressBar.textContent = data.progress + '%';
+            }
+            addLog(data.message);
+        });
+        
+        // 处理状态更新
+        socket.on('processing_status', (data) => {
+            document.getElementById('status').textContent = data.message;
+            addLog(`状态更新: ${data.status} - ${data.message}`);
+        });
+        
+        // 添加日志
+        function addLog(message) {
+            const logDiv = document.getElementById('log');
+            const logEntry = document.createElement('div');
+            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logDiv.appendChild(logEntry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+    </script>
+</body>
+</html>
