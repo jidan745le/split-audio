@@ -51,11 +51,16 @@ class SpeakerDiarization:
             "max_speakers": max_speakers
         }
         from pyannote.audio.pipelines.utils.hook import ProgressHook
+        user_id = self.user_id
+        task_id = self.task_id
         class CustomProgressHook(ProgressHook):
             def __init__(self, socketio=None):
                 super().__init__()
                 self.socketio = socketio
+                self.user_id = user_id
+                self.task_id = task_id
                 
+
             def __call__(self, step_name: str, step_artifact: Any,
                     file: Optional[Mapping] = None,
                     total: Optional[int] = None,
