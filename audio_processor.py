@@ -173,16 +173,16 @@ def process_audio_file(audio_path: str, socketio=None,user_id=None,task_id=None)
     
     # 发送开始处理的消息
     if socketio:
-        socketio.emit('message', {'status': 'started', 'message': '开始处理音频文件',"type":"processing_status","user_id":user_id,"task_id":task_id})
+        socketio.emit('message', {'status': 'started', 'message': '开始处理音频文件',"type":"processing_status","user_id":user_id,"task_id":task_id,"progress":0})
     
     # 1. 使用Whisper进行转录（强制使用CPU）
     if socketio:
-        socketio.emit('message', {'status': 'whisper_loading', 'message': '加载Whisper模型',"type":"processing_status","user_id":user_id,"task_id":task_id})
+        socketio.emit('message', {'status': 'whisper_loading', 'message': '加载Whisper模型',"type":"processing_status","user_id":user_id,"task_id":task_id,"progress":5})
     
     model = whisper.load_model("base").cpu()
     
     if socketio:
-        socketio.emit('message', {'status': 'whisper_transcribing', 'message': '开始转录音频',"type":"processing_status","user_id":user_id,"task_id":task_id})
+        socketio.emit('message', {'status': 'whisper_transcribing', 'message': '开始转录音频',"type":"processing_status","user_id":user_id,"task_id":task_id,"progress":10})
     
     # 设置tqdm的socketio
     transcribe_module.tqdm.tqdm.socketio = socketio
@@ -190,14 +190,14 @@ def process_audio_file(audio_path: str, socketio=None,user_id=None,task_id=None)
     
     # 2. 进行说话人分离
     if socketio:
-        socketio.emit('message', {'status': 'diarization_started', 'message': '开始说话人分离',"type":"processing_status","user_id":user_id,"task_id":task_id})
+        socketio.emit('message', {'status': 'diarization_started', 'message': '开始说话人分离',"type":"processing_status","user_id":user_id,"task_id":task_id,"progress":20})
     
     diarization = SpeakerDiarization(socketio,user_id,task_id)
     diarization_data = diarization.process_audio(audio_path)
     
     # 3. 合并结果
     if socketio:
-        socketio.emit('message', {'status': 'combining_results', 'message': '合并转录和说话人分离结果',"type":"processing_status","user_id":user_id,"task_id":task_id})
+        socketio.emit('message', {'status': 'combining_results', 'message': '合并转录和说话人分离结果',"type":"processing_status","user_id":user_id,"task_id":task_id,"progress":62})
     
     combined_results = combine_whisper_diarization_with_ratio(
         whisper_data,
@@ -207,7 +207,7 @@ def process_audio_file(audio_path: str, socketio=None,user_id=None,task_id=None)
     
     # 发送处理完成的消息
     if socketio:
-        socketio.emit('message', {'status': 'completed', 'message': '音频处理完成',"type":"processing_status","user_id":user_id,"task_id":task_id})
+        socketio.emit('message', {'status': 'completed', 'message': '音频处理完成',"type":"processing_status","user_id":user_id,"task_id":task_id,"progress":65})
     
     # 确保所有NumPy类型都被转换为Python原生类型
     combined_results_json = json.loads(json.dumps(combined_results, cls=NumpyEncoder))
