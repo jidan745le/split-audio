@@ -27,14 +27,25 @@ def health_check():
 
 @app.route('/process_audio', methods=['POST'])
 def process_audio():
+    app.logger.info(f"收到请求，文件: {request.files}")
+    
     if 'file' not in request.files:
+        app.logger.error("请求中没有文件部分")
         return jsonify({'error': 'No file part'}), 400
     
     file = request.files['file']
+    app.logger.info(f"文件名: {file.filename}")
+    
     if file.filename == '':
+        app.logger.error("没有选择文件")
         return jsonify({'error': 'No selected file'}), 400
     
+    app.logger.info(f"检查文件类型: {file.filename}")
+    app.logger.info(f"文件扩展名: {file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else 'no extension'}")
+    app.logger.info(f"允许的扩展名: {ALLOWED_EXTENSIONS}")
+    
     if file and allowed_file(file.filename):
+        app.logger.info("文件类型有效，继续处理")
         filename = secure_filename(file.filename)
         filepath = os.path.join(UPLOAD_FOLDER, filename)
         file.save(filepath)
@@ -50,8 +61,9 @@ def process_audio():
             if os.path.exists(filepath):
                 os.remove(filepath)
             return jsonify({'error': str(e)}), 500
-    
-    return jsonify({'error': 'Invalid file type'}), 400
+    else:
+        app.logger.error(f"文件类型无效: {file.filename}")
+        return jsonify({'error': 'Invalid file type'}), 400
 
 # WebSocket事件处理
 @socketio.on('connect')
