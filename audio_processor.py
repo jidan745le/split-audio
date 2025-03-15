@@ -25,7 +25,7 @@ class NumpyEncoder(json.JSONEncoder):
         return super(NumpyEncoder, self).default(obj)
 
 class SpeakerDiarization:
-    def __init__(self, socketio=None):
+    def __init__(self, socketio=None,user_id=None,task_id=None):
         # 从环境变量获取 token
         auth_token = os.getenv('HUGGINGFACE_TOKEN')
         if not auth_token:
@@ -38,6 +38,8 @@ class SpeakerDiarization:
         # 强制使用CPU
         self.pipeline.to(torch.device("cpu"))
         self.socketio = socketio
+        self.user_id = user_id
+        self.task_id = task_id  
 
     def process_audio(self, audio_path: str, min_speakers: int = 1, max_speakers: int = 4) -> dict:
         waveform, sample_rate = torchaudio.load(audio_path)
@@ -76,11 +78,14 @@ class SpeakerDiarization:
                                 'completed': completed_int,
                                 'total': total_int,
                                 'progress': round(progress, 1),
-                                'message': progress_msg
+                                'message': progress_msg,
+                                "type":"diarization_progress",
+                                "user_id":self.user_id,
+                                "task_id":self.task_id
                             }
                             # 转换为 JSON 再解析回来，确保没有 NumPy 类型
                             progress_data = json.loads(json.dumps(progress_data, cls=NumpyEncoder))
-                            self.socketio.emit('diarization_progress', progress_data)
+                            self.socketio.emit('message', progress_data)
                         except Exception as e:
                             print(f"Error sending progress via WebSocket: {e}")
                 else:
@@ -88,9 +93,12 @@ class SpeakerDiarization:
                     print(f"\r当前步骤: {step_name}", flush=True)
                     if self.socketio:
                         try:
-                            self.socketio.emit('diarization_progress', {
+                            self.socketio.emit('message', {
                                 'step': step_name,
-                                'message': f"当前步骤: {step_name}"
+                                'message': f"当前步骤: {step_name}",
+                                "type":"diarization_progress",
+                                "user_id":self.user_id,
+                                "task_id":self.task_id
                             })
                         except Exception as e:
                             print(f"Error sending step info via WebSocket: {e}")
@@ -112,13 +120,15 @@ class SpeakerDiarization:
             serializable_tracks.append(track_dict)
         return serializable_tracks
 
-def process_audio_file(audio_path: str, socketio=None) -> Dict[str, Any]:
+def process_audio_file(audio_path: str, socketio=None,user_id=None,task_id=None) -> Dict[str, Any]:
     # 自定义进度条，通过WebSocket发送进度
     class _CustomProgressBar(tqdm):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             self._current = self.n  # 设置初始值
             self.socketio = socketio
+            self.user_id = user_id
+            self.task_id = task_id
 
         def update(self, n):
             super().update(n)
@@ -141,11 +151,14 @@ def process_audio_file(audio_path: str, socketio=None) -> Dict[str, Any]:
                             'completed': current,
                             'total': total,
                             'progress': round(progress, 1),
-                            'message': progress_msg
+                            'message': progress_msg,
+                            "type":"whisper_progress"
                         }
                         # 转换为 JSON 再解析回来，确保没有 NumPy 类型
                         progress_data = json.loads(json.dumps(progress_data, cls=NumpyEncoder))
-                        self.socketio.emit('whisper_progress', progress_data)
+                        progress_data["user_id"] = self.user_id
+                        progress_data["task_id"] = self.task_id
+                        self.socketio.emit('message', progress_data)
                     except Exception as e:
                         print(f"Error sending whisper progress via WebSocket: {e}")
     
@@ -155,16 +168,16 @@ def process_audio_file(audio_path: str, socketio=None) -> Dict[str, Any]:
     
     # 发送开始处理的消息
     if socketio:
-        socketio.emit('processing_status', {'status': 'started', 'message': '开始处理音频文件'})
+        socketio.emit('message', {'status': 'started', 'message': '开始处理音频文件',"type":"processing_status","user_id":user_id,"task_id":task_id})
     
     # 1. 使用Whisper进行转录（强制使用CPU）
     if socketio:
-        socketio.emit('processing_status', {'status': 'whisper_loading', 'message': '加载Whisper模型'})
+        socketio.emit('message', {'status': 'whisper_loading', 'message': '加载Whisper模型',"type":"processing_status","user_id":user_id,"task_id":task_id})
     
     model = whisper.load_model("base").cpu()
     
     if socketio:
-        socketio.emit('processing_status', {'status': 'whisper_transcribing', 'message': '开始转录音频'})
+        socketio.emit('message', {'status': 'whisper_transcribing', 'message': '开始转录音频',"type":"processing_status","user_id":user_id,"task_id":task_id})
     
     # 设置tqdm的socketio
     transcribe_module.tqdm.tqdm.socketio = socketio
@@ -172,14 +185,14 @@ def process_audio_file(audio_path: str, socketio=None) -> Dict[str, Any]:
     
     # 2. 进行说话人分离
     if socketio:
-        socketio.emit('processing_status', {'status': 'diarization_started', 'message': '开始说话人分离'})
+        socketio.emit('message', {'status': 'diarization_started', 'message': '开始说话人分离',"type":"processing_status","user_id":user_id,"task_id":task_id})
     
-    diarization = SpeakerDiarization(socketio)
+    diarization = SpeakerDiarization(socketio,user_id,task_id)
     diarization_data = diarization.process_audio(audio_path)
     
     # 3. 合并结果
     if socketio:
-        socketio.emit('processing_status', {'status': 'combining_results', 'message': '合并转录和说话人分离结果'})
+        socketio.emit('message', {'status': 'combining_results', 'message': '合并转录和说话人分离结果',"type":"processing_status","user_id":user_id,"task_id":task_id})
     
     combined_results = combine_whisper_diarization_with_ratio(
         whisper_data,
@@ -189,7 +202,7 @@ def process_audio_file(audio_path: str, socketio=None) -> Dict[str, Any]:
     
     # 发送处理完成的消息
     if socketio:
-        socketio.emit('processing_status', {'status': 'completed', 'message': '音频处理完成'})
+        socketio.emit('message', {'status': 'completed', 'message': '音频处理完成',"type":"processing_status","user_id":user_id,"task_id":task_id})
     
     # 确保所有NumPy类型都被转换为Python原生类型
     combined_results_json = json.loads(json.dumps(combined_results, cls=NumpyEncoder))

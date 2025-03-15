@@ -46,7 +46,10 @@ def process_audio():
         logger.info(f"请求头: {dict(request.headers)}")
         logger.info(f"表单数据: {request.form}")
         logger.info(f"文件: {request.files}")
+        user_id = request.form.get('userId')
+        task_id = request.form.get('taskId')
         
+
         # 检查请求中是否有文件部分
         if 'file' not in request.files:
             logger.error("请求中没有'file'部分")
@@ -91,7 +94,7 @@ def process_audio():
         try:
             # 处理音频文件
             logger.info(f"开始处理音频文件: {filepath}")
-            results = process_audio_file(filepath, socketio=socketio)
+            results = process_audio_file(filepath, socketio=socketio,user_id=user_id,task_id=task_id)
             logger.info("音频处理完成")
             
             # 删除临时文件
